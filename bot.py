@@ -109,14 +109,35 @@ def send_both(text: str = None, photo: str = None, caption: str = None) -> None:
         logger.warning(f"Failed to send admin copy: {e}")
 
 
-def parse_schedule(text: str, command: str) -> list[str]:
-    """Helper to parse and validate schedule times from a command string."""
-    times = text.replace(command, '').strip().split()
-    if not times:
-        return []
-    for t in times:
-        datetime.strptime(t, '%H:%M')  # Will raise ValueError if invalid
-    return times
+
+
+def generate_calendar_text() -> str:
+    """Helper to generate the text for the calendar and stats."""
+    now   = datetime.now()
+    cal   = storage.get_calendar(now.year, now.month)
+    stats = storage.get_stats(now.year, now.month)
+
+    text = f"📅 {now.strftime('%B %Y')}\n\n"
+    week = []
+
+    first_day = datetime(now.year, now.month, 1).weekday()
+    week.extend(["   "] * first_day)
+
+    for day in range(1, len(cal) + 1):
+        emoji = {"taken": "✅", "missed": "❌"}.get(
+            cal[day],
+            "❔" if day == now.day else ("➖" if day < now.day else "▫️"),
+        )
+        week.append(f"{day:2d}{emoji}")
+        if (day + first_day) % 7 == 0 or day == len(cal):
+            text += " ".join(week) + "\n"
+            week = []
+
+    text += f"\n📊\n✅ {stats['taken']}\n❌ {stats['missed']}\n"
+    if stats['total'] > 0:
+        text += f"📈 {stats['percentage']:.1f}%\n"
+    text += f"🔥 {stats['streak']}"
+    return text
 
 
 # =============================================================================
@@ -126,7 +147,7 @@ def send_pill_reminder() -> None:
     if storage.data.get('pill_status_today') in ('taken', 'missed'):
         return
     logger.info("Sending scheduled pill reminder.")
-    send_both(text=random.choice(TEXTS['pill_reminder']))
+    send_both(photo=random.choice(IMAGES['day']), caption=random.choice(TEXTS['pill_reminder']))
 
 
 def send_persistent() -> None:
@@ -137,18 +158,18 @@ def send_persistent() -> None:
     last_time = datetime.strptime(last_scheduled, '%H:%M').time()
     if now.time() > last_time:
         logger.info("Sending persistent pill reminder.")
-        send_both(text=random.choice(TEXTS['persistent']))
+        send_both(photo=random.choice(IMAGES['day']), caption=random.choice(TEXTS['persistent']))
 
 
 def send_motivation() -> None:
     logger.info("Sending motivation.")
     text_pool = TEXTS['motivation'] if random.random() < 0.7 else TEXTS['quotes']
-    send_both(photo=random.choice(IMAGES['motivation']), caption=random.choice(text_pool))
+    send_both(photo=random.choice(IMAGES['day']), caption=random.choice(text_pool))
 
 
 def send_sleep_question() -> None:
     logger.info("Sending sleep question.")
-    send_both(text=random.choice(TEXTS['sleep_question']))
+    send_both(photo=random.choice(IMAGES['sleep']), caption=random.choice(TEXTS['sleep_question']))
 
 
 def send_sleep_reminder() -> None:
@@ -222,16 +243,12 @@ def reload_sleep_schedule() -> None:
 def cmd_start_admin(msg):
     bot.send_message(
         msg.chat.id,
-         "Привет, Admin! 👨‍💻\n\nТы подключен как админ.\n\n"
-         "Доступные команды:\n"
-         "/status — статус и настройки\n"
-         "/set_pill_schedule 13:00 13:30\n"
-         "/set_pill_interval 15\n"
-         "/set_sleep_schedule 22:00 23:00\n"
-         "/reset_pill — сброс таблетки\n"
-         "/reset_sleep — сброс сна\n"
-         "/send_motivation текст\n"
-         "/send_text текст",
+        "Привет, Admin! 👨‍💻\n\nТы подключен как админ.\n\n"
+        "Доступные команды:\n"
+        "/status — статус и настройки\n"
+        "/calendar — показать график и статистику Лизы\n"
+        "/send_text — отправить произвольное сообщение или картинку Лизе с помощью диалога\n"
+        "/send_message_image текст — мгновенно отправить текст со случайной картинкой из папки Day\n",
     )
 
 
@@ -251,102 +268,59 @@ def cmd_status(msg):
     ))
 
 
-@bot.message_handler(commands=['set_pill_schedule'], is_admin=True)
-def cmd_set_pill_schedule(msg):
-    try:
-        times = parse_schedule(msg.text, '/set_pill_schedule')
-        if not times:
-            bot.send_message(msg.chat.id, "Укажи времена: /set_pill_schedule 12:00 12:10 12:20")
-            return
-        
-        storage.data['pill_schedule'] = times
-        storage.save()
-        reload_pill_schedule()
-        bot.send_message(msg.chat.id, f"✅ Расписание таблетки обновлено:\n{', '.join(times)}")
-    except ValueError:
-        bot.send_message(msg.chat.id, "❌ Неверный формат! Используй: /set_pill_schedule 12:00 12:10 12:20")
-
-
-@bot.message_handler(commands=['set_pill_interval'], is_admin=True)
-def cmd_set_pill_interval(msg):
-    try:
-        interval = int(msg.text.split()[1])
-        if not (1 <= interval <= 60):
-            bot.send_message(msg.chat.id, "❌ Интервал должен быть от 1 до 60 минут")
-            return
-        storage.data['pill_interval'] = interval
-        storage.save()
-        reload_pill_schedule()
-        bot.send_message(msg.chat.id, f"✅ Интервал навязчивых напоминаний: каждые {interval} мин")
-    except (ValueError, IndexError):
-        bot.send_message(msg.chat.id, "❌ Укажи число: /set_pill_interval 5")
-
-
-@bot.message_handler(commands=['set_sleep_schedule'], is_admin=True)
-def cmd_set_sleep_schedule(msg):
-    try:
-        times = parse_schedule(msg.text, '/set_sleep_schedule')
-        if not times:
-            bot.send_message(msg.chat.id, "Укажи времена: /set_sleep_schedule 22:00 23:00 00:00")
-            return
-        
-        storage.data['sleep_schedule'] = times
-        storage.save()
-        reload_sleep_schedule()
-        bot.send_message(
-            msg.chat.id,
-            f"✅ Расписание сна обновлено:\n{', '.join(times)}\n"
-            f"(Первое время — вопрос, остальные — напоминания)",
-        )
-    except ValueError:
-        bot.send_message(msg.chat.id, "❌ Неверный формат! Используй: /set_sleep_schedule 22:00 23:00 00:00")
-
-
-@bot.message_handler(commands=['reset_pill'], is_admin=True)
-def cmd_reset_pill(msg):
-    storage.data['pill_schedule'] = DEFAULT_PILL_SCHEDULE.copy()
-    storage.data['pill_interval'] = DEFAULT_PILL_INTERVAL
-    storage.save()
-    reload_pill_schedule()
-    bot.send_message(
-        msg.chat.id,
-        f"✅ Настройки таблетки сброшены к дефолту:\n"
-        f"{', '.join(DEFAULT_PILL_SCHEDULE)}\nИнтервал: {DEFAULT_PILL_INTERVAL} мин",
-    )
-
-
-@bot.message_handler(commands=['reset_sleep'], is_admin=True)
-def cmd_reset_sleep(msg):
-    storage.data['sleep_schedule'] = DEFAULT_SLEEP_SCHEDULE.copy()
-    storage.save()
-    reload_sleep_schedule()
-    bot.send_message(
-        msg.chat.id,
-        f"✅ Настройки сна сброшены к дефолту:\n{', '.join(DEFAULT_SLEEP_SCHEDULE)}",
-    )
-
-
-@bot.message_handler(commands=['send_motivation'], is_admin=True)
-def cmd_send_motivation(msg):
-    text = msg.text.replace('/send_motivation', '', 1).strip()
-    if not text:
-        bot.send_message(msg.chat.id, "Пример: /send_motivation Привет!")
-        return
-    try:
-        bot.send_photo(LIZA_CHAT_ID, random.choice(IMAGES['motivation']), caption=text)
-        bot.send_message(msg.chat.id, "✅ Отправлено")
-    except Exception as e:
-        bot.send_message(msg.chat.id, f"❌ {e}")
-
-
 @bot.message_handler(commands=['send_text'], is_admin=True)
 def cmd_send_text(msg):
-    text = msg.text.replace('/send_text', '', 1).strip()
-    if not text:
-        bot.send_message(msg.chat.id, "Пример: /send_text Люблю!")
+    # Step 1: Prompt the admin for the message
+    reply_msg = bot.send_message(
+        msg.chat.id, 
+        "Okay, send me the picture and the text and I will resend this to Liza.\n"
+        "(You can send just text, or a photo with a caption. Send /cancel to abort.)"
+    )
+    # Step 2: Register the next step handler
+    bot.register_next_step_handler(reply_msg, process_admin_message)
+
+
+def process_admin_message(msg):
+    # Ensure they haven't cancelled
+    if msg.text and msg.text.strip().lower() == '/cancel':
+        bot.send_message(msg.chat.id, "Отменено.")
         return
-    send_both(text=text)
-    bot.send_message(msg.chat.id, "✅")
+
+    # Forward logic
+    try:
+        if msg.photo:
+            # Get the highest resolution photo (the last one in the array)
+            photo_id = msg.photo[-1].file_id
+            caption = msg.caption
+            send_both(text=caption, photo=photo_id)
+        elif msg.text:
+            send_both(text=msg.text)
+        else:
+            # Handle stickers, videos, etc. if unsupported
+            bot.send_message(msg.chat.id, "❌ Поддерживается только текст или фото с подписью.")
+            return
+
+        bot.send_message(msg.chat.id, "✅ Отправлено Лизе!")
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"❌ Ошибка отправки: {e}")
+
+
+@bot.message_handler(commands=['calendar'], is_admin=True)
+def cmd_calendar_admin(msg):
+    bot.send_message(msg.chat.id, generate_calendar_text())
+
+
+@bot.message_handler(commands=['send_message_image'], is_admin=True)
+def cmd_send_message_image(msg):
+    text = msg.text.replace('/send_message_image', '', 1).strip()
+    if not text:
+        bot.send_message(msg.chat.id, "Пример: /send_message_image Спокойной ночи!")
+        return
+    try:
+        send_both(photo=random.choice(IMAGES['day']), caption=text)
+        bot.send_message(msg.chat.id, "✅ Отправлено со случайной картинкой [day]!")
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"❌ Ошибка отправки: {e}")
 
 
 # =============================================================================
@@ -370,7 +344,7 @@ def btn_taken(msg):
         return
     if not storage.mark_day('taken'):
         return
-    send_both(photo=random.choice(IMAGES['taken']), caption=random.choice(TEXTS['taken']))
+    send_both(photo=random.choice(IMAGES['day']), caption=random.choice(TEXTS['taken']))
     if storage.data.get('streak', 0) > 1:
         send_both(text=f"🔥 Стрик: {storage.data['streak']} дней!")
 
@@ -382,37 +356,12 @@ def btn_missed(msg):
         return
     if not storage.mark_day('missed'):
         return
-    send_both(photo=random.choice(IMAGES['missed']), caption=random.choice(TEXTS['missed']))
+    send_both(photo=random.choice(IMAGES['day']), caption=random.choice(TEXTS['missed']))
 
 
 @bot.message_handler(func=lambda m: m.text == "📅 График за месяц", is_liza=True)
 def btn_calendar(msg):
-    now   = datetime.now()
-    cal   = storage.get_calendar(now.year, now.month)
-    stats = storage.get_stats(now.year, now.month)
-
-    text = f"📅 {now.strftime('%B %Y')}\n\n"
-    week = []
-
-    first_day = datetime(now.year, now.month, 1).weekday()
-    week.extend(["   "] * first_day)
-
-    for day in range(1, len(cal) + 1):
-        emoji = {"taken": "✅", "missed": "❌"}.get(
-            cal[day],
-            "❔" if day == now.day else ("➖" if day < now.day else "▫️"),
-        )
-        week.append(f"{day:2d}{emoji}")
-        if (day + first_day) % 7 == 0 or day == len(cal):
-            text += " ".join(week) + "\n"
-            week = []
-
-    text += f"\n📊\n✅ {stats['taken']}\n❌ {stats['missed']}\n"
-    if stats['total'] > 0:
-        text += f"📈 {stats['percentage']:.1f}%\n"
-    text += f"🔥 {stats['streak']}"
-
-    bot.send_message(msg.chat.id, text, reply_markup=get_keyboard())
+    bot.send_message(msg.chat.id, generate_calendar_text(), reply_markup=get_keyboard())
 
 
 # =============================================================================

@@ -1,108 +1,89 @@
 # LizaPillsBot 💊
 
-A personal Telegram bot that reminds Liza to take her pill and go to sleep on time.
+A beautifully personalized Telegram bot that reminds Liza to take her pill and go to sleep on time.
 Built with [pyTelegramBotAPI](https://github.com/eternnoir/pyTelegramBotAPI) and APScheduler.
 
 ---
 
-## Features
+## 🌟 Features
 
-- **Pill reminders** — scheduled messages at configurable times
-- **Persistent nudges** — keeps reminding on a set interval until the pill is marked
-- **Sleep reminders** — bedtime countdown with image messages
-- **Streak tracking** — celebrates consecutive days taken
-- **Monthly calendar** — visual emoji grid of the whole month
-- **Admin panel** — full control via Telegram commands (schedule, interval, manual messages)
-- **Weekly stats** — automatic Sunday recap
+- **Pill reminders** — Scheduled messages with randomized cute texts and 'day' images.
+- **Persistent nudges** — Keeps reminding on a set interval until the pill is marked as taken.
+- **Sleep routine** — Bedtime countdown with lovely sleep-themed messages and images.
+- **Streak tracking** — Celebrates consecutive days taken.
+- **Monthly calendar** — Visual emoji grid of the whole month.
+- **Admin panel** — Full control via Telegram, including mirroring of all automated messages to the admin.
+- **Conversational messaging** — Admin can instantly route custom texts, photos, and captions to Liza via the bot interface.
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 LizaPillsBot/
-├── bot.py          # Entry point: handlers, reminders, scheduler, main()
-├── config.py       # Loads .env secrets + defines all constants
-├── content.py      # All text pools and image URLs
-├── storage.py      # DataStorage class — JSON persistence with atomic writes
-├── .env            # ⚠️ Secrets (NOT in git)
-├── .env.example    # Template for .env
-├── .gitignore
-├── requirements.txt
-└── liza_data.json  # Created automatically on first run (NOT in git)
+├── bot.py          # Core orchestrator: handlers, scheduled jobs, telegram polling
+├── config.py       # Configuration layer: Environment variables, timezone, default schedules
+├── content.py      # Assets: Massive pools of randomized Russian texts and Yandex image URLs
+├── storage.py      # Persistence: Atomic JSON saving and stats calculation
+├── .env            # ⚠️ Secrets (Tokens and Chat IDs — Not in Git)
+├── .gitignore      # Ignores sensitive keys and local database files
+├── requirements.txt# Dependencies
+└── liza_data.json  # Runtime database created automatically (Not in Git)
 ```
 
 ---
 
-## Setup
+## 🛠️ Setup & Run
 
-### 1. Clone the repo
+### 1. Requirements
 
-```bash
-git clone <repo_url>
-cd LizaPillsBot
-```
-
-### 2. Create a virtual environment
+Ensure you are using Python 3 and a virtual environment.
 
 ```bash
 python3 -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-```
-
-### 3. Install dependencies
-
-```bash
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure `.env`
+### 2. Configuration (`.env`)
 
-```bash
-cp .env.example .env
+You must create a `.env` file in the root directory. This keeps your secure tokens out of version control.
+
+```env
+BOT_TOKEN=7XXXXXXXXXXXXXXXXXXXXXXXXXXX
+ADMIN_CHAT_ID=111111111  # Your numeric Telegram ID
+LIZA_CHAT_ID=222222222   # Liza's numeric Telegram ID
 ```
 
-Edit `.env` and fill in:
+*(Note: You can get your numeric Telegram ID by messaging [@userinfobot](https://t.me/userinfobot))*
 
-| Variable | How to get it |
-|---|---|
-| `BOT_TOKEN` | Message [@BotFather](https://t.me/BotFather) on Telegram → `/newbot` or `/token` |
-| `ADMIN_CHAT_ID` | Message [@userinfobot](https://t.me/userinfobot) — it replies with your numeric Telegram ID |
-
-> ⚠️ **If you previously had the token hard-coded in source, regenerate it via BotFather before running.**
-
-### 5. Run
+### 3. Run
 
 ```bash
-python bot.py
+python3 bot.py
 ```
 
-Liza sends `/start` to register. You (the admin) send `/start` from a separate account that matches `ADMIN_CHAT_ID`.
+The console will boot up the APScheduler and output the current schedule and connection status.
 
 ---
 
-## Admin Commands
+## 👑 Admin Commands
+
+The bot uses strict access control. Only the account matching `ADMIN_CHAT_ID` can trigger these commands.
 
 | Command | Description |
 |---|---|
-| `/status` | Show current pill status, streak, and schedules |
-| `/set_pill_schedule 13:00 13:10 13:20` | Set pill reminder times |
-| `/set_pill_interval 10` | Set persistent reminder interval (minutes) |
-| `/set_sleep_schedule 22:00 23:00 00:00` | Set sleep reminder times (first = question, rest = reminders) |
-| `/reset_pill` | Reset pill settings to defaults |
-| `/reset_sleep` | Reset sleep settings to defaults |
-| `/send_motivation Hello!` | Send a custom motivation message with a random image |
-| `/send_text Hello!` | Send a plain text message to Liza |
+| `/start` | Setup text showing available commands. |
+| `/status` | Shows current pill status for the day, active streak, and the cron schedule. |
+| `/calendar` | Prints the same monthly calendar & statistics view that Liza sees. |
+| `/send_text` | Initiates a conversational flow. The bot will wait for you to send an image/text, and seamlessly route it to Liza. |
+| `/send_message_image [текст]` | Instantly wraps your text with a random image from the `day` pool and sends it to Liza. |
+
+**Monitoring:** Because of the `send_both()` core function, any automated message triggered by the system (pill reminders, sleep reminders, etc.) is immediately forwarded to the Admin with a `📨 [Лизе]` tag.
 
 ---
 
-## Running as a Background Service (optional)
-
-To keep the bot alive after closing your terminal, use `screen`, `tmux`, or a `systemd` service:
-
-```bash
-# Quick option with screen
-screen -S lizabot
-python bot.py
-# Detach: Ctrl+A, D
-```
+## 🎨 Modifying Content
+All user-facing language and images are fiercely separated from the logic. If you want to change what the bot says, simply edit `content.py`.
+- `TEXTS`: Contains arrays of phrases for reminders, motivation, and sleep. The bot picks one at random globally.
+- `IMAGES`: Contains direct Yandex Disk image URLs securely split into `day` and `sleep` categories.
