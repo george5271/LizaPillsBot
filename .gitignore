@@ -1,0 +1,28 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Never commit this file — it contains your bot token and admin ID
+.env
+
+# ── Live data ─────────────────────────────────────────────────────────────────
+# Contains real user chat IDs and pill history — keep off version control
+liza_data.json
+liza_data.json.tmp   # atomic write temp file
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
