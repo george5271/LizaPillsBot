@@ -38,7 +38,11 @@ time.tzset()
 
 DATA_FILE = 'liza_data.json'
 
-# ── Default schedules (used on first run or after /reset_*) ──────────────────
-DEFAULT_PILL_SCHEDULE  = ['13:35', '13:40', '13:45', '13:50']
-DEFAULT_PILL_INTERVAL  = 10   # minutes between persistent reminders
-DEFAULT_SLEEP_SCHEDULE = ['22:00', '23:00', '23:30', '00:00']
+# ── Default schedules ─────────────────────────────────────────────────────────
+# Pill: first reminder 13:35, second 13:50, then every 120 min via persistent job
+DEFAULT_PILL_SCHEDULE  = ['13:35', '13:50']
+DEFAULT_PILL_INTERVAL  = 120   # minutes between persistent reminders after last planned time
+
+# Sleep: one reminder per night at a random time between 23:30 and 01:30 (scheduled at startup)
+SLEEP_WINDOW_START = (23, 30)   # (hour, minute) — start of random window
+SLEEP_WINDOW_END   = (1, 30)    # (hour, minute) — end (next day)

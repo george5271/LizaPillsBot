@@ -4,11 +4,16 @@ storage.py — Persistent data layer for LizaPillsBot.
 All read/write operations on liza_data.json go through DataStorage.
 Uses an atomic write pattern (write to .tmp → os.replace) to prevent
 JSON corruption if the process is killed mid-write.
+
+save() is async (aiofiles) and guarded by asyncio.Lock to prevent
+concurrent writes from scheduler jobs and aiogram handlers.
 """
 
+import asyncio
 import json
 import logging
 import os
+import aiofiles
 from calendar import monthrange
 from datetime import datetime
 
@@ -16,7 +21,6 @@ from config import (
     DATA_FILE,
     DEFAULT_PILL_INTERVAL,
     DEFAULT_PILL_SCHEDULE,
-    DEFAULT_SLEEP_SCHEDULE,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 class DataStorage:
     def __init__(self):
+        self._lock = asyncio.Lock()
         self.data = self._load()
 
     # ── I/O ──────────────────────────────────────────────────────────────────
@@ -33,37 +38,36 @@ class DataStorage:
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            # Backfill any keys that were added after first run
             data.setdefault('pill_schedule', DEFAULT_PILL_SCHEDULE)
             data.setdefault('pill_interval', DEFAULT_PILL_INTERVAL)
-            data.setdefault('sleep_schedule', DEFAULT_SLEEP_SCHEDULE)
+            # Remove legacy sleep_schedule key if present
+            data.pop('sleep_schedule', None)
             logger.info(f"Data loaded from {DATA_FILE}.")
             return data
         except FileNotFoundError:
             logger.warning(f"{DATA_FILE} not found — starting with fresh state.")
             return {
-                'calendar':         {},
-                'streak':           0,
+                'calendar':          {},
+                'streak':            0,
                 'pill_status_today': None,
-                'last_check_date':  None,
-                'pill_schedule':    DEFAULT_PILL_SCHEDULE.copy(),
-                'pill_interval':    DEFAULT_PILL_INTERVAL,
-                'sleep_schedule':   DEFAULT_SLEEP_SCHEDULE.copy(),
+                'last_check_date':   None,
+                'pill_schedule':     DEFAULT_PILL_SCHEDULE.copy(),
+                'pill_interval':     DEFAULT_PILL_INTERVAL,
             }
 
-    def save(self) -> None:
+    async def save(self) -> None:
         """
-        Atomically persist data to disk.
+        Atomically persist data to disk (async, under lock).
 
         Writes to a .tmp file first, then renames it over the real file.
-        This guarantees the JSON on disk is never half-written — if the
-        process crashes mid-write, the previous good file survives.
+        asyncio.Lock prevents concurrent writes from racing each other.
         """
-        tmp_file = DATA_FILE + '.tmp'
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_file, DATA_FILE)  # atomic on POSIX, near-atomic on Windows
-        logger.debug("Data saved.")
+        async with self._lock:
+            tmp_file = DATA_FILE + '.tmp'
+            async with aiofiles.open(tmp_file, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
+            os.replace(tmp_file, DATA_FILE)
+            logger.debug("Data saved.")
 
     # ── Daily pill tracking ───────────────────────────────────────────────────
 
@@ -77,7 +81,7 @@ class DataStorage:
             and self.data.get('last_check_date') == self._today()
         )
 
-    def mark_day(self, status: str) -> bool:
+    async def mark_day(self, status: str) -> bool:
         """
         Record today's pill status ('taken' or 'missed').
         Returns False (and does nothing) if status was already set today.
@@ -89,17 +93,17 @@ class DataStorage:
         self.data['pill_status_today'] = status
         self.data['last_check_date'] = today
         self.data['streak'] = (self.data.get('streak', 0) + 1) if status == 'taken' else 0
-        self.save()
+        await self.save()
         return True
 
-    def reset_daily(self) -> None:
+    async def reset_daily(self) -> None:
         """Called at midnight — clears today's pill status so the day starts fresh."""
         today = self._today()
         if self.data.get('last_check_date') != today:
             logger.info(f"Daily reset for {today}.")
             self.data['pill_status_today'] = None
             self.data['last_check_date'] = today
-            self.save()
+            await self.save()
 
     # ── Calendar & stats ─────────────────────────────────────────────────────
 

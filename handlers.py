@@ -10,7 +10,7 @@ from core import bot, storage
 from filters import AdminFilter, LizaFilter
 from alarms import get_keyboard, send_both
 from content import IMAGES, TEXTS
-from config import DEFAULT_PILL_SCHEDULE, DEFAULT_PILL_INTERVAL, DEFAULT_SLEEP_SCHEDULE
+from config import DEFAULT_PILL_SCHEDULE, DEFAULT_PILL_INTERVAL, ADMIN_CHAT_ID
 
 router = Router()
 
@@ -58,14 +58,13 @@ async def cmd_status(message: Message):
     now       = datetime.now()
     pill_sch  = ', '.join(storage.data.get('pill_schedule', DEFAULT_PILL_SCHEDULE))
     pill_int  = storage.data.get('pill_interval', DEFAULT_PILL_INTERVAL)
-    sleep_sch = ', '.join(storage.data.get('sleep_schedule', DEFAULT_SLEEP_SCHEDULE))
     await message.answer(
         f"📊 Статус бота 527\n\n"
         f"🕐 {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"📋 Статус: {storage.data.get('pill_status_today', '-')}\n"
         f"🔥 Стрик: {storage.data.get('streak', 0)}\n\n"
         f"💊 Таблетка:\n└ Плановые: {pill_sch}\n└ Навязчивые: каждые {pill_int} мин\n\n"
-        f"🌙 Сон:\n└ {sleep_sch}"
+        f"🌙 Сон: случайное время 23:30–01:30"
     )
 
 @router.message(Command("calendar"), AdminFilter())
@@ -79,7 +78,7 @@ async def cmd_send_message_image(message: Message):
         await message.answer("Пример: /send_message_image Спокойной ночи!")
         return
     try:
-        await send_both(photo=random.choice(IMAGES['day']), caption=text)
+        await send_both(photo=random.choice(IMAGES['day']), text=text)
         await message.answer("✅ Отправлено со случайной картинкой [day]!")
     except Exception as e:
         await message.answer(f"❌ Ошибка отправки: {e}")
@@ -107,8 +106,7 @@ async def process_admin_message(message: Message, state: FSMContext):
     try:
         if message.photo:
             photo_id = message.photo[-1].file_id
-            caption = message.caption
-            await send_both(text=caption, photo=photo_id)
+            await send_both(text=message.caption, photo=photo_id)
         elif message.text:
             await send_both(text=message.text)
         else:
@@ -127,7 +125,7 @@ async def cmd_start_liza(message: Message):
     await message.answer(
         f"Привет, Лизочка! 💕\n\nЯ - 527, твой личный ассистент!\n\n"
         f"⏰ Таблетка: {', '.join(storage.data.get('pill_schedule', DEFAULT_PILL_SCHEDULE))}\n"
-        f"🌙 Сон: {', '.join(storage.data.get('sleep_schedule', DEFAULT_SLEEP_SCHEDULE))}",
+        f"🌙 Сон: случайное время 23:30–01:30",
         reply_markup=get_keyboard(),
     )
 
@@ -136,9 +134,9 @@ async def btn_taken(message: Message):
     if storage.is_locked():
         await message.answer("Уже отмечено сегодня!", reply_markup=get_keyboard())
         return
-    if not storage.mark_day('taken'):
+    if not await storage.mark_day('taken'):
         return
-    await send_both(photo=random.choice(IMAGES['day']), caption=random.choice(TEXTS['taken']))
+    await send_both(photo=random.choice(IMAGES['day']), text=random.choice(TEXTS['taken']))
     if storage.data.get('streak', 0) > 1:
         await send_both(text=f"🔥 Стрик: {storage.data['streak']} дней!")
 
@@ -147,13 +145,17 @@ async def btn_missed(message: Message):
     if storage.is_locked():
         await message.answer("Уже отмечено сегодня!", reply_markup=get_keyboard())
         return
-    if not storage.mark_day('missed'):
+    if not await storage.mark_day('missed'):
         return
-    await send_both(photo=random.choice(IMAGES['day']), caption=random.choice(TEXTS['missed']))
+    await send_both(photo=random.choice(IMAGES['day']), text=random.choice(TEXTS['missed']))
 
 @router.message(F.text == "📅 График за месяц", LizaFilter())
 async def btn_calendar(message: Message):
     await message.answer(generate_calendar_text(), reply_markup=get_keyboard())
+    try:
+        await bot.send_message(ADMIN_CHAT_ID, "👀 Лиза открыла календарь")
+    except Exception:
+        pass
 
 # --- STRANGER ---
 @router.message()
