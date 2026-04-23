@@ -10,7 +10,16 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
 )
 
-bot = Bot(token=BOT_TOKEN)
+from aiogram.client.default import DefaultBotProperties
+from aiohttp import ClientTimeout
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(),
+    session=__import__('aiogram').client.session.aiohttp.AiohttpSession(
+        timeout=ClientTimeout(total=60)
+    ),
+)
 dp = Dispatcher()
 storage = DataStorage()
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
