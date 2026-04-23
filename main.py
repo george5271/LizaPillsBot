@@ -23,10 +23,14 @@ async def start_bot():
     scheduler.add_job(send_motivation, 'cron', hour=15, minute=30, id='motivation_afternoon')
     scheduler.add_job(send_weekly_stats, 'cron', day_of_week='sun', hour=20, minute=0, id='weekly_stats')
 
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-    except Exception as e:
-        logger.error(f"delete_webhook failed: {e}")
+    for attempt in range(3):
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            break
+        except Exception as e:
+            logger.warning(f"delete_webhook attempt {attempt+1}/3 failed: {e}")
+            if attempt < 2:
+                await asyncio.sleep(5)
 
     scheduler.start()
     logger.info("🚀 AsyncIOScheduler started. Polling...")

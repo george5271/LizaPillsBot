@@ -1,7 +1,6 @@
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp import ClientTimeout
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import BOT_TOKEN, TIMEZONE
 from storage import DataStorage
@@ -14,7 +13,7 @@ logging.basicConfig(
 
 bot = Bot(
     token=BOT_TOKEN,
-    session=AiohttpSession(timeout=ClientTimeout(total=60)),
+    session=AiohttpSession(timeout=60),
 )
 dp = Dispatcher()
 storage = DataStorage()
