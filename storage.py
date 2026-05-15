@@ -1,13 +1,16 @@
 import json
 import logging
 import os
+from threading import RLock
 from calendar import monthrange
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from config import (
     DATA_FILE,
     DEFAULT_PILL_INTERVAL,
     DEFAULT_PILL_SCHEDULE,
+    TIMEZONE,
 )
 
 logger = logging.getLogger(__name__)
@@ -15,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 class DataStorage:
     def __init__(self):
+        self._lock = RLock()
+        self._tz = ZoneInfo(TIMEZONE)
         self.data = self._load()
 
     # ── I/O ──────────────────────────────────────────────────────────────────
@@ -24,6 +29,10 @@ class DataStorage:
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+            data.setdefault('calendar', {})
+            data.setdefault('streak', 0)
+            data.setdefault('pill_status_today', None)
+            data.setdefault('last_check_date', None)
             data.setdefault('pill_schedule', DEFAULT_PILL_SCHEDULE)
             data.setdefault('pill_interval', DEFAULT_PILL_INTERVAL)
             # Remove legacy sleep_schedule key if present
@@ -42,16 +51,17 @@ class DataStorage:
             }
 
     def save(self) -> None:
-        tmp_file = DATA_FILE + '.tmp'
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_file, DATA_FILE)
-        logger.debug("Data saved.")
+        with self._lock:
+            tmp_file = DATA_FILE + '.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, DATA_FILE)
+            logger.debug("Data saved.")
 
     # ── Daily pill tracking ───────────────────────────────────────────────────
 
     def _today(self) -> str:
-        return datetime.now().strftime('%Y-%m-%d')
+        return datetime.now(self._tz).strftime('%Y-%m-%d')
 
     def is_locked(self) -> bool:
         """Return True if the pill status has already been recorded for today."""
@@ -60,24 +70,26 @@ class DataStorage:
             and self.data.get('last_check_date') == self._today()
         )
 
-    async def mark_day(self, status: str) -> bool:
-        if self.is_locked():
-            return False
-        today = self._today()
-        self.data['calendar'][today] = status
-        self.data['pill_status_today'] = status
-        self.data['last_check_date'] = today
-        self.data['streak'] = (self.data.get('streak', 0) + 1) if status == 'taken' else 0
-        self.save()
-        return True
-
-    async def reset_daily(self) -> None:
-        today = self._today()
-        if self.data.get('last_check_date') != today:
-            logger.info(f"Daily reset for {today}.")
-            self.data['pill_status_today'] = None
+    def mark_day(self, status: str) -> bool:
+        with self._lock:
+            if self.is_locked():
+                return False
+            today = self._today()
+            self.data['calendar'][today] = status
+            self.data['pill_status_today'] = status
             self.data['last_check_date'] = today
+            self.data['streak'] = (self.data.get('streak', 0) + 1) if status == 'taken' else 0
             self.save()
+            return True
+
+    def reset_daily(self) -> None:
+        with self._lock:
+            today = self._today()
+            if self.data.get('last_check_date') != today:
+                logger.info(f"Daily reset for {today}.")
+                self.data['pill_status_today'] = None
+                self.data['last_check_date'] = today
+                self.save()
 
     # ── Calendar & stats ─────────────────────────────────────────────────────
 

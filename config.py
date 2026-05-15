@@ -6,7 +6,6 @@ All tunable constants live here so nothing is scattered across the codebase.
 """
 
 import os
-import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,10 +32,9 @@ except ValueError:
 
 # ── Timezone & persistence ────────────────────────────────────────────────────
 TIMEZONE = 'Europe/Moscow'
-os.environ['TZ'] = TIMEZONE
-time.tzset()
 
-DATA_FILE = 'liza_data.json'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(BASE_DIR, 'liza_data.json')
 
 # ── Default schedules ─────────────────────────────────────────────────────────
 # Pill: first reminder 13:35, second 13:50, then every 120 min via persistent job

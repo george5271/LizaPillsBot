@@ -1,9 +1,13 @@
 import asyncio
 import logging
 
-from core import bot, dp, scheduler, storage
-from handlers import router
-from alarms import reload_pill_schedule, schedule_tonight_sleep, send_motivation, send_weekly_stats
+from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
+
+from config import BOT_TOKEN
+from handlers import create_router
+from scheduler import BotScheduler, Delivery
+from storage import DataStorage
 
 logger = logging.getLogger(__name__)
 
@@ -11,17 +15,13 @@ logger = logging.getLogger(__name__)
 async def start_bot():
     logger.info("🤖 Бот 527 запускается на aiogram...")
 
-    dp.include_router(router)
+    bot = Bot(token=BOT_TOKEN, session=AiohttpSession(timeout=60))
+    dp = Dispatcher()
+    storage = DataStorage()
+    delivery = Delivery(bot)
+    scheduler = BotScheduler(storage, delivery)
 
-    scheduler.add_job(storage.reset_daily, 'cron', hour=0, minute=0, second=5, id='reset_daily')
-    scheduler.add_job(schedule_tonight_sleep, 'cron', hour=2, minute=0, id='reschedule_sleep')
-
-    reload_pill_schedule()
-    schedule_tonight_sleep()
-
-    scheduler.add_job(send_motivation, 'cron', hour=10, minute=30, id='motivation_morning')
-    scheduler.add_job(send_motivation, 'cron', hour=15, minute=30, id='motivation_afternoon')
-    scheduler.add_job(send_weekly_stats, 'cron', day_of_week='sun', hour=20, minute=0, id='weekly_stats')
+    dp.include_router(create_router(bot, storage, delivery))
 
     for attempt in range(3):
         try:
@@ -32,15 +32,25 @@ async def start_bot():
             if attempt < 2:
                 await asyncio.sleep(5)
 
-    scheduler.start()
-    logger.info("🚀 AsyncIOScheduler started. Polling...")
+    scheduler_task = asyncio.create_task(scheduler.run())
+    logger.info("🚀 Polling started.")
 
     try:
         await dp.start_polling(bot)
     finally:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
         await bot.session.close()
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
     try:
         asyncio.run(start_bot())
     except (KeyboardInterrupt, SystemExit):
